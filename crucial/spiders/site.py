@@ -20,11 +20,12 @@ class BaseSpider(scrapy.Spider):
 
         prodinfo = response.xpath("/html/head/title/text()").get().split(" | ")[1:-1]
 
-        prods = Memory({
+        prods = {
+            "_url": response.url,
             "_manufacturer": prodinfo[0],
             "_model": prodinfo[-1],
             'modules': [],
-        })
+        }
 
         for script in response.xpath("//script[@type='text/javascript']/text()").getall():
             # Find memory modules list from javascript
@@ -47,15 +48,26 @@ class BaseSpider(scrapy.Spider):
             prods['modules'] = modules
 
         if len(prods['modules']) > 0:
-            yield prods
+            yield Memory(prods)
 
 
-class ManufacturerSpider(BaseSpider):
-    name = 'manufacturer'
+class ManufacturerSpiderOld(BaseSpider):
+    name = 'manufacturer_old'
 
     start_urls = [
-        'https://www.crucial.com/content/crucial/en-us/home/store/advisor/jcr:content/maincontent/zurbrow_copy_copy_co/zurbcolumn1/content/zurbrow/zurbcolumn1/content/threestepupgradeadvi.modelslistdata.json?productlineid=supermicro-motherboards',
+        'https://www.crucial.com/content/crucial/en-us/home/store/advisor/jcr:content/maincontent/zurbrow_copy_copy_co/zurbcolumn1/content/zurbrow/zurbcolumn1/content/threestepupgradeadvi.modelslistdata.json',
     ]
+
+    def __init__(self, product: str = ""):
+        if product == "":
+            product = None
+
+        if product is None:
+            raise ValueError("Invalid product given")
+
+        self.start_urls = [
+            f'https://www.crucial.com/content/crucial/en-us/home/store/advisor/jcr:content/maincontent/zurbrow_copy_copy_co/zurbcolumn1/content/zurbrow/zurbcolumn1/content/threestepupgradeadvi.modelslistdata.json?productlineid={product}',
+        ]
 
     def parse(self, response: scrapy.http.Response):
         data = json.loads(response.body)['result']
@@ -93,3 +105,28 @@ class MotherboardSpider(BaseSpider):
 
     def parse(self, response: scrapy.http.Response):
         yield scrapy.Request(response.url, callback=self.parse_motherboard)
+
+
+class ManufacturerSpider(BaseSpider):
+    name = 'manufacturer'
+
+    def __init__(self, product: str = ""):
+        if product == "":
+            product = None
+
+        if product is None:
+            raise ValueError("Invalid product given")
+
+        self.start_urls = [
+            f'https://www.crucial.com/upgrades/{product}',
+        ]
+
+    def parse(self, response: scrapy.http.Response):
+        for link in response.xpath("//div[@id='oemdisplay']//div[contains(@class, 'column')]/a/@href").getall():
+            if '/compatible-upgrade-for/' not in link:
+                continue
+
+            yield scrapy.Request(
+                response.urljoin(link),
+                callback=self.parse_motherboard,
+            )
